@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 pkg=io.github.hugfeature.hydrationbreak
 mkdir -p device-evidence
 # Reinstall a clean copy: this also checks installation of the exact downloadable APK.
-adb uninstall "$pkg"
+if adb shell pm list packages | tr -d '\r' | grep -qx "package:$pkg"; then
+  adb uninstall "$pkg"
+fi
 adb install app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant "$pkg" android.permission.POST_NOTIFICATIONS
 adb shell am start -W -n "$pkg/.MainActivity" | tee device-evidence/launch.txt
@@ -36,6 +38,7 @@ for attempt in $(seq 1 30); do
 done
 grep -q "$pkg" device-evidence/alarms-reboot.txt
 adb shell pm revoke "$pkg" android.permission.POST_NOTIFICATIONS
+adb shell pm set-permission-flags "$pkg" android.permission.POST_NOTIFICATIONS user-set user-fixed
 adb shell am start -W -n "$pkg/.MainActivity"
 adb shell uiautomator dump /sdcard/window.xml
 adb pull /sdcard/window.xml device-evidence/permission-denied.xml
