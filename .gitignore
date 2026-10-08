@@ -2,3 +2,10 @@
 **/build/
 local.properties
 device-evidence/
+
+*.jks
+*.keystore
+*.p12
+android-signing.json
+upgrade-fixture/
+__pycache__/

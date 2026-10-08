@@ -6,6 +6,26 @@ mkdir -p device-evidence
 if adb shell pm list packages | tr -d '\r' | grep -qx "package:$pkg"; then
   adb uninstall "$pkg"
 fi
+# Install base, write non-default settings, then upgrade without uninstalling.
+adb install upgrade-fixture/base.apk
+adb shell am start -W -n "$pkg/.MainActivity"
+adb shell am force-stop "$pkg"
+printf '%s' '<map><boolean name="enabled_1" value="false" /><int name="minutes_2" value="45" /><int name="start" value="8" /><int name="end" value="20" /></map>' | adb shell "run-as $pkg sh -c 'cat > shared_prefs/reminder_settings.xml'"
+adb shell run-as "$pkg" cat shared_prefs/reminder_settings.xml > device-evidence/settings-before-upgrade.xml
+adb install -r upgrade-fixture/upgrade.apk
+adb shell run-as "$pkg" cat shared_prefs/reminder_settings.xml > device-evidence/settings-after-upgrade.xml
+python3 - <<'PYXML'
+import xml.etree.ElementTree as ET
+before = {e.attrib['name']: e.attrib.get('value', e.text) for e in ET.parse('device-evidence/settings-before-upgrade.xml').getroot()}
+after = {e.attrib['name']: e.attrib.get('value', e.text) for e in ET.parse('device-evidence/settings-after-upgrade.xml').getroot()}
+for key in ('enabled_1', 'minutes_2', 'start', 'end'):
+    assert before[key] == after[key], f'Upgrade lost setting: {key}'
+PYXML
+adb shell am start -W -n "$pkg/.MainActivity"
+adb shell dumpsys package "$pkg" > device-evidence/package-upgrade.txt
+grep -q 'versionCode=6' device-evidence/package-upgrade.txt
+# The rest of the smoke test uses the exact distributable build.
+adb uninstall "$pkg"
 adb install app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant "$pkg" android.permission.POST_NOTIFICATIONS
 adb shell am start -W -n "$pkg/.MainActivity" | tee device-evidence/launch.txt

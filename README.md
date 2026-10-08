@@ -10,7 +10,7 @@
 
 ## 下载与安装
 1. 打开仓库的 **Actions → Build Android APK**，选择最新成功运行。
-2. 下载 `hydration-break-0.1.3-debug-apk` 构建产物并解压得到 APK。
+2. 下载 `hydration-break-0.1.4-debug-apk` 构建产物并解压得到 APK。
 3. 手机允许安装所下载的 APK；首次打开请允许通知权限。
 4. 如提醒被系统延迟，可在手机系统的电池管理中允许本 App 后台运行。
 
@@ -56,3 +56,20 @@ GitHub Actions 自动构建调试版 APK；该 APK 并非正式签名发布版�
 - 每次成功提交通知后轮换一个办公室小幅动作：坐姿抬膝、轻转肩背、缓慢转头。通知展开显示步骤，点击打开对应动作；首页可随时浏览、换动作。
 - 动作内容完全离线，参考 [NHS 坐姿活动](https://www.nhs.uk/live-well/exercise/sitting-exercises/)，按办公室小幅活动场景简化。使用稳固无轮椅子，轻缓进行，不适即停；不是个体化康复处方。
 - 未增加权限。仍使用 CI 调试签名，旧版可能无法覆盖安装；卸载重装会清空设置。
+
+## 0.1.4：固定签名（需先配置一次）
+CI 必须读取仓库 Secret `ANDROID_SIGNING_JSON`；未配置时明确失败，不再生成新的随机签名 APK。密钥不进入代码、缓存或构建产物。调试构建类型暂时保留，便于现有诊断；固定签名不代表已改为正式发布版。
+
+仓库所有者在装有 JDK 17、Python 3 和 GitHub CLI 的电脑上执行：
+```bash
+gh auth login
+git clone https://github.com/hugfeature/hydration-break.git
+cd hydration-break
+python3 scripts/configure-signing.py ~/hydration-break-signing-backup
+gh workflow run android.yml -R hugfeature/hydration-break
+```
+已有 checkout 则先更新，不必再次 clone。脚本生成长期密钥并通过 stdin 上传到 GitHub Secret；本机目录保留唯一可导出的备份，请安全另存一份。上传失败可用同一个目录重试；Secret 已存在时拒绝替换，避免意外改变应用身份。不要将备份发到聊天或提交 Git。
+
+旧流程没有保存调试私钥，APK 只包含证书，不能从 APK 还原私钥。找不到旧密钥时，旧随机签名版转到固定签名版仍需一次卸载重装，此后应在同一密钥下递增版本覆盖安装。
+
+CI 新增两次独立 clean 构建的证书一致性检查，以及低版本安装→写入非默认设置→`adb install -r` 高版本→设置保留检查。仅在配置 Secret 且实际运行通过后，才能报告覆盖安装验证通过；它不证明旧随机签名版可以直接升级，也不替代手机端验证。

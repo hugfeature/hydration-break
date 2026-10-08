@@ -18,21 +18,34 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Build, unit tests and lint
-        run: gradle --no-daemon assembleDebug testDebugUnitTest lintDebug assembleDebugAndroidTest
+      - name: Restore fixed signing key
+        env:
+          ANDROID_SIGNING_JSON: ${{ secrets.ANDROID_SIGNING_JSON }}
+        run: python3 scripts/restore-signing.py
+      - name: Build base APK
+        run: gradle --no-daemon assembleDebug
       - name: Verify APK signature and metadata
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk
           mkdir -p app/build/distribution
-          cp app/build/outputs/apk/debug/app-debug.apk app/build/distribution/hydration-break-0.1.3.apk
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/distribution/hydration-break-0.1.4.apk
           cd app/build/distribution
-          sha256sum hydration-break-0.1.3.apk > SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hydration-break-0.1.3-debug-apk
-          path: app/build/distribution/*
-          if-no-files-found: error
+          sha256sum hydration-break-0.1.4.apk > SHA256SUMS
+      - name: Build independent upgrade fixture with the same key
+        run: |
+          mkdir -p upgrade-fixture
+          cp app/build/outputs/apk/debug/app-debug.apk upgrade-fixture/base.apk
+          gradle --no-daemon clean assembleDebug -PupgradeVersionCode=6
+          cp app/build/outputs/apk/debug/app-debug.apk upgrade-fixture/upgrade.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs upgrade-fixture/base.apk > upgrade-fixture/base-cert.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs upgrade-fixture/upgrade.apk > upgrade-fixture/upgrade-cert.txt
+          diff upgrade-fixture/base-cert.txt upgrade-fixture/upgrade-cert.txt
+          gradle --no-daemon clean assembleDebug testDebugUnitTest lintDebug assembleDebugAndroidTest
+          mkdir -p app/build/distribution
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/distribution/hydration-break-0.1.4.apk
+          cd app/build/distribution
+          sha256sum hydration-break-0.1.4.apk > SHA256SUMS
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -51,6 +64,14 @@ jobs:
             adb shell settings put global auto_time 0
             adb shell date 100812002026.00
             bash scripts/validate-device.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hydration-break-0.1.4-debug-apk
+          path: app/build/distribution/*
+          if-no-files-found: error
+      - name: Remove restored signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/hydration-signing.p12"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
