@@ -25,6 +25,8 @@ grep -q "$pkg" device-evidence/alarms-idle.txt
 adb shell dumpsys deviceidle unforce
 adb shell cmd power set-mode 0
 adb shell dumpsys battery reset
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell input keyevent 82
 adb shell pm revoke "$pkg" android.permission.POST_NOTIFICATIONS
 adb shell pm set-permission-flags "$pkg" android.permission.POST_NOTIFICATIONS user-set user-fixed
 adb shell am start -W -n "$pkg/.MainActivity"
