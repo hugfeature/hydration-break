@@ -12,7 +12,8 @@ import android.os.Build
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val kind = intent.getIntExtra("kind", Scheduler.WATER)
+        val kind = intent.getIntExtra("kind", -1)
+        if (!Scheduler.validKind(kind)) return
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         if (Scheduler.enabled(context, kind) && hour >= Scheduler.start(context) && hour < Scheduler.end(context)) {
             val nm = context.getSystemService(NotificationManager::class.java)
@@ -26,7 +27,12 @@ class ReminderReceiver : BroadcastReceiver() {
                     .setAutoCancel(true)
                     .setContentIntent(PendingIntent.getActivity(context, kind, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
                     .build()
-                nm.notify(kind, notification)
+                try {
+                    if (nm.areNotificationsEnabled()) nm.notify(kind, notification)
+                } catch (error: SecurityException) {
+                    // Permission can be revoked between checking and posting. Keep scheduling.
+                    android.util.Log.w("Reminder", "Notification permission revoked", error)
+                }
             }
         }
         Scheduler.schedule(context, kind)
