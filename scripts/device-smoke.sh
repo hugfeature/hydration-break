@@ -39,6 +39,9 @@ adb shell am start -W -n "$pkg/.MainActivity"
 adb shell uiautomator dump /sdcard/window.xml
 adb pull /sdcard/window.xml device-evidence/permission-granted.xml
 grep -q '通知已开启' device-evidence/permission-granted.xml
+# Reboot from the normal background/locked state, without reopening after boot.
+adb shell input keyevent KEYCODE_HOME
+adb shell input keyevent KEYCODE_SLEEP
 adb reboot
 adb wait-for-device
 for attempt in $(seq 1 90); do
