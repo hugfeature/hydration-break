@@ -10,32 +10,58 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 
+object ReminderNotifications {
+    fun blockedReason(context: Context): String? {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if ((Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) || !manager.areNotificationsEnabled()) return "通知权限未开启"
+        if (manager.getNotificationChannel("reminder")?.importance == NotificationManager.IMPORTANCE_NONE) return "健康提醒通知类别已关闭"
+        return null
+    }
+    fun post(context: Context, kind: Int): String {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel("reminder", "健康提醒", NotificationManager.IMPORTANCE_DEFAULT))
+        blockedReason(context)?.let { return it }
+        val title = when (kind) {
+            Scheduler.WATER -> "喝点水吧"
+            Scheduler.BREAK -> "起来活动一下"
+            else -> "提醒测试"
+        }
+        val body = when (kind) {
+            Scheduler.WATER -> "喝几口水，补充水分。"
+            Scheduler.BREAK -> "离开屏幕，活动身体、远眺 1–2 分钟。"
+            else -> "这是测试通知；不会改变喝水和休息的提醒计划。"
+        }
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return "通知权限未开启"
+        return try {
+            manager.notify(kind, android.app.Notification.Builder(context, "reminder")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title).setContentText(body).setAutoCancel(true)
+                .setContentIntent(PendingIntent.getActivity(context, kind, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+                .build())
+            "已交给系统通知服务（请查看通知栏）"
+        } catch (error: SecurityException) {
+            android.util.Log.w("Reminder", "Notification permission revoked", error)
+            "系统拒绝通知，请检查通知权限"
+        }
+    }
+}
+
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val kind = intent.getIntExtra("kind", -1)
-        if (!Scheduler.validKind(kind)) return
+        if (!Scheduler.validKind(kind) && kind != Scheduler.TEST) return
+        val settings = Scheduler.prefs(context)
+        val received = System.currentTimeMillis()
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        if (Scheduler.enabled(context, kind) && hour >= Scheduler.start(context) && hour < Scheduler.end(context)) {
-            val nm = context.getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(NotificationChannel("reminder", "健康提醒", NotificationManager.IMPORTANCE_DEFAULT))
-            if (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                val isWater = kind == Scheduler.WATER
-                val notification = android.app.Notification.Builder(context, "reminder")
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(if (isWater) "喝点水吧" else "起来活动一下")
-                    .setContentText(if (isWater) "喝几口水，补充水分。" else "离开屏幕，活动身体、远眺 1–2 分钟。")
-                    .setAutoCancel(true)
-                    .setContentIntent(PendingIntent.getActivity(context, kind, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-                    .build()
-                try {
-                    if (nm.areNotificationsEnabled()) nm.notify(kind, notification)
-                } catch (error: SecurityException) {
-                    // Permission can be revoked between checking and posting. Keep scheduling.
-                    android.util.Log.w("Reminder", "Notification permission revoked", error)
-                }
-            }
+        val result = when {
+            kind == Scheduler.TEST -> ReminderNotifications.post(context, kind)
+            !Scheduler.enabled(context, kind) -> "提醒已关闭"
+            hour < Scheduler.start(context) || hour >= Scheduler.end(context) -> "到达时已超出提醒时段，本次跳过"
+            else -> ReminderNotifications.post(context, kind)
         }
-        Scheduler.schedule(context, kind)
+        settings.edit().putLong("received_$kind", received).putString("result_$kind", result).apply()
+        if (kind == Scheduler.TEST) settings.edit().remove("next_$kind").apply()
+        else Scheduler.schedule(context, kind)
     }
 }
 class BootReceiver : BroadcastReceiver() {

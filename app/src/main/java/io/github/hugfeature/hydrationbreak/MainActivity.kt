@@ -9,6 +9,11 @@ import android.widget.*
 
 class MainActivity : Activity() {
     private lateinit var notificationStatus: TextView
+    private lateinit var scheduleStatus: TextView
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val refresh = object : Runnable {
+        override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
+    }
     private val kinds = listOf(Scheduler.WATER, Scheduler.BREAK)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -20,21 +25,44 @@ class MainActivity : Activity() {
     }
     override fun onResume() {
         super.onResume()
-        if (::notificationStatus.isInitialized) refreshStatus()
+        if (::notificationStatus.isInitialized) handler.post(refresh)
     }
+    override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         refreshStatus()
     }
     private fun refreshStatus() {
-        val manager = getSystemService(android.app.NotificationManager::class.java)
-        val blocked = !manager.areNotificationsEnabled() ||
-            manager.getNotificationChannel("reminder")?.importance == android.app.NotificationManager.IMPORTANCE_NONE
-        notificationStatus.text = if (blocked) "通知未开启，提醒不会显示。请点击下方按钮开启应用通知及健康提醒通知类别。"
+        val blocked = ReminderNotifications.blockedReason(this) != null
+        var notificationText = if (blocked) "通知未开启，提醒不会显示。请点击下方按钮开启应用通知及健康提醒通知类别。"
             else "通知已开启；锁屏显示、声音和省电限制由系统设置决定。"
-        kinds.mapNotNull { Scheduler.prefs(this).getString("error_$it", null) }.distinct().forEach {
-            notificationStatus.append("\n$it")
+        val settings = Scheduler.prefs(this)
+        val now = System.currentTimeMillis()
+        fun time(value: Long) = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(value))
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val lines = mutableListOf(if (hour < Scheduler.start(this) || hour >= Scheduler.end(this))
+            "当前不在提醒时段内；常规提醒将在下个时段继续。" else "当前在提醒时段内。")
+        (kinds + Scheduler.TEST).forEach { kind ->
+            val name = when (kind) { Scheduler.WATER -> "喝水"; Scheduler.BREAK -> "休息"; else -> "锁屏测试" }
+            val next = settings.getLong("next_$kind", 0)
+            if (kind != Scheduler.TEST || next > 0 || settings.contains("result_$kind")) {
+                lines += when {
+                    kind != Scheduler.TEST && !Scheduler.enabled(this, kind) -> "$name：已关闭"
+                    next > now -> "$name：计划 ${time(next)}（可能延迟）"
+                    next > 0 -> "$name：计划 ${time(next)}，尚未收到系统触发"
+                    else -> "$name：暂无待执行计划"
+                }
+                val received = settings.getLong("received_$kind", 0)
+                if (received > 0) lines += "上次触发 ${time(received)}"
+                settings.getString("result_$kind", null)?.let { lines += it }
+            }
         }
+        val scheduleText = lines.joinToString("\n")
+        if (scheduleStatus.text.toString() != scheduleText) scheduleStatus.text = scheduleText
+        kinds.mapNotNull { Scheduler.prefs(this).getString("error_$it", null) }.distinct().forEach {
+            notificationText += "\n$it"
+        }
+        if (notificationStatus.text.toString() != notificationText) notificationStatus.text = notificationText
     }
     private fun render() {
         val root = LinearLayout(this).apply {
@@ -44,7 +72,7 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
         root.addView(TextView(this).apply { text = "喝水与休息"; textSize = 27f })
-        root.addView(TextView(this).apply { text = "离线运行 · 本地提醒 · 无需账号"; textSize = 14f })
+        root.addView(TextView(this).apply { text = "离线运行 · 本地提醒 · v${packageManager.getPackageInfo(packageName, 0).versionName}"; textSize = 14f })
         notificationStatus = TextView(this)
         root.addView(notificationStatus)
         root.addView(Button(this).apply {
@@ -55,6 +83,27 @@ class MainActivity : Activity() {
                         .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
                 } catch (_: android.content.ActivityNotFoundException) {
                     Toast.makeText(this@MainActivity, "请在系统设置中打开本应用的通知设置", Toast.LENGTH_LONG).show()
+                }
+            }
+        })
+        scheduleStatus = TextView(this).apply { textSize = 14f }
+        root.addView(scheduleStatus)
+        root.addView(Button(this).apply {
+            text = "立即发送测试通知"
+            setOnClickListener {
+                Toast.makeText(this@MainActivity, ReminderNotifications.post(this@MainActivity, Scheduler.TEST), Toast.LENGTH_LONG).show()
+                refreshStatus()
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "安排锁屏测试（约 1 分钟）"
+            setOnClickListener {
+                val blocked = ReminderNotifications.blockedReason(this@MainActivity)
+                if (blocked != null) Toast.makeText(this@MainActivity, blocked, Toast.LENGTH_LONG).show()
+                else {
+                    val scheduled = Scheduler.scheduleTest(this@MainActivity)
+                    refreshStatus()
+                    Toast.makeText(this@MainActivity, if (scheduled) "请现在锁屏。测试不受提醒时段限制，系统可能延迟；解锁后可查看触发记录。" else "测试安排失败，请查看状态", Toast.LENGTH_LONG).show()
                 }
             }
         })

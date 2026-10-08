@@ -10,6 +10,7 @@ import java.util.Calendar
 object Scheduler {
     const val WATER = 1
     const val BREAK = 2
+    const val TEST = 3
     private const val PREF = "reminder_settings"
     fun prefs(context: Context) = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     fun validKind(kind: Int) = kind == WATER || kind == BREAK
@@ -41,6 +42,21 @@ object Scheduler {
             next.set(Calendar.SECOND, 0); next.set(Calendar.MILLISECOND, 0)
         }
         return next.timeInMillis
+    }
+    fun scheduleTest(context: Context, delayMillis: Long = 60_000): Boolean {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        val trigger = System.currentTimeMillis() + delayMillis.coerceAtLeast(1000)
+        val operation = pending(context, TEST)
+        manager.cancel(operation)
+        prefs(context).edit().remove("next_$TEST").remove("received_$TEST").remove("result_$TEST").apply()
+        return try {
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation)
+            prefs(context).edit().putLong("next_$TEST", trigger).apply()
+            true
+        } catch (error: SecurityException) {
+            prefs(context).edit().putString("result_$TEST", "系统拒绝安排测试提醒").apply()
+            false
+        }
     }
     fun schedule(context: Context, kind: Int, preserveFuture: Boolean = false) {
         if (!validKind(kind)) return

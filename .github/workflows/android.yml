@@ -24,13 +24,14 @@ jobs:
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk
-          sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/SHA256SUMS
+          mkdir -p app/build/distribution
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/distribution/hydration-break-0.1.2.apk
+          cd app/build/distribution
+          sha256sum hydration-break-0.1.2.apk > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: hydration-break-debug-apk
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/debug/SHA256SUMS
+          name: hydration-break-0.1.2-debug-apk
+          path: app/build/distribution/*
           if-no-files-found: error
       - name: Enable KVM
         run: |

@@ -64,4 +64,36 @@ class ReminderTest {
         }
         assertTrue("Notification not posted within 5 seconds", manager.activeNotifications.any { it.id == Scheduler.WATER })
     }
+    @Test fun scheduledTestActuallyDeliversWhileIdle() {
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
+        fun shell(command: String): String = android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand(command)).bufferedReader().use { it.readText() }
+        // Use an invalid regular window to prove this explicitly requested test bypasses it.
+        settings.edit().putInt("start", 18).putInt("end", 9).commit()
+        try {
+            shell("input keyevent KEYCODE_HOME")
+            shell("input keyevent KEYCODE_SLEEP")
+            shell("dumpsys battery unplug")
+            shell("dumpsys deviceidle enable")
+            shell("dumpsys deviceidle force-idle")
+            assertTrue("Device did not enter Doze", shell("dumpsys deviceidle").contains("mState=IDLE"))
+            assertTrue(Scheduler.scheduleTest(context, 1000))
+            val manager = context.getSystemService(NotificationManager::class.java)
+            val deadline = android.os.SystemClock.elapsedRealtime() + 120_000
+            while ((manager.activeNotifications.none { it.id == Scheduler.TEST } || settings.getLong("received_3", 0) == 0L || settings.contains("next_3")) && android.os.SystemClock.elapsedRealtime() < deadline) {
+                android.os.SystemClock.sleep(100)
+            }
+            assertTrue("No actual alarm delivery within 120 seconds", settings.getLong("received_3", 0) > 0)
+            assertTrue("No notification after alarm delivery", manager.activeNotifications.any { it.id == Scheduler.TEST })
+            assertEquals(0L, settings.getLong("next_3", 0))
+            assertFalse(settings.contains("next_1"))
+            assertFalse(settings.contains("next_2"))
+        } finally {
+            shell("dumpsys deviceidle unforce")
+            shell("dumpsys battery reset")
+            shell("input keyevent KEYCODE_WAKEUP")
+            shell("input keyevent 82")
+        }
+    }
+
 }
