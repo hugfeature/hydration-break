@@ -22,6 +22,7 @@ class MainActivity : Activity() {
         }
         Scheduler.rescheduleAll(this, preserveFuture = true)
         render()
+        if (intent.hasExtra(OfficeExercises.EXTRA_MOVE)) showExercise(intent.getIntExtra(OfficeExercises.EXTRA_MOVE, 0))
     }
     override fun onResume() {
         super.onResume()
@@ -43,7 +44,7 @@ class MainActivity : Activity() {
         val lines = mutableListOf(if (hour < Scheduler.start(this) || hour >= Scheduler.end(this))
             "当前不在提醒时段内；常规提醒将在下个时段继续。" else "当前在提醒时段内。")
         (kinds + Scheduler.TEST).forEach { kind ->
-            val name = when (kind) { Scheduler.WATER -> "喝水"; Scheduler.BREAK -> "休息"; else -> "锁屏测试" }
+            val name = when (kind) { Scheduler.WATER -> "喝水"; Scheduler.BREAK -> "运动"; else -> "锁屏测试" }
             val next = settings.getLong("next_$kind", 0)
             if (kind != Scheduler.TEST || next > 0 || settings.contains("result_$kind")) {
                 lines += when {
@@ -64,6 +65,15 @@ class MainActivity : Activity() {
         }
         if (notificationStatus.text.toString() != notificationText) notificationStatus.text = notificationText
     }
+    private fun showExercise(index: Int) {
+        val move = OfficeExercises.at(index)
+        android.app.AlertDialog.Builder(this)
+            .setTitle(move.title)
+            .setMessage("${move.steps}\n\n${OfficeExercises.CAUTION}")
+            .setPositiveButton("知道了", null)
+            .setNeutralButton("换一个动作") { _, _ -> showExercise(index + 1) }
+            .show()
+    }
     private fun render() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -71,8 +81,17 @@ class MainActivity : Activity() {
         }
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
-        root.addView(TextView(this).apply { text = "喝水与休息"; textSize = 27f })
+        root.addView(TextView(this).apply { text = "休息与运动"; textSize = 27f })
         root.addView(TextView(this).apply { text = "离线运行 · 本地提醒 · v${packageManager.getPackageInfo(packageName, 0).versionName}"; textSize = 14f })
+        root.addView(Button(this).apply {
+            text = "办公室小幅运动 · 查看动作"
+            setOnClickListener {
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("选择一个动作")
+                    .setItems(OfficeExercises.moves.map { it.title }.toTypedArray()) { _, index -> showExercise(index) }
+                    .setNegativeButton("关闭", null).show()
+            }
+        })
         notificationStatus = TextView(this)
         root.addView(notificationStatus)
         root.addView(Button(this).apply {
@@ -108,7 +127,7 @@ class MainActivity : Activity() {
             }
         })
         kinds.forEach { kind ->
-            val name = if (kind == Scheduler.WATER) "喝水提醒" else "活动休息"
+            val name = if (kind == Scheduler.WATER) "喝水提醒" else "运动提醒"
             root.addView(Switch(this).apply {
                 text = name
                 textSize = 19f

@@ -64,6 +64,34 @@ class ReminderTest {
         }
         assertTrue("Notification not posted within 5 seconds", manager.activeNotifications.any { it.id == Scheduler.WATER })
     }
+    @Test fun exerciseNotificationRotatesAndOpensMatchingInstructions() {
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
+        val manager = context.getSystemService(NotificationManager::class.java)
+        for (index in 0..OfficeExercises.moves.size) {
+            ReminderNotifications.post(context, Scheduler.BREAK)
+            val expected = OfficeExercises.at(index)
+            val deadline = android.os.SystemClock.elapsedRealtime() + 5000
+            var notification = manager.activeNotifications.firstOrNull { it.id == Scheduler.BREAK }?.notification
+            while (notification?.extras?.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString()?.contains(expected.steps) != true && android.os.SystemClock.elapsedRealtime() < deadline) {
+                android.os.SystemClock.sleep(50)
+                notification = manager.activeNotifications.firstOrNull { it.id == Scheduler.BREAK }?.notification
+            }
+            assertTrue(notification?.extras?.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString()?.contains(expected.steps) == true)
+            val monitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
+            try {
+                notification!!.contentIntent.send()
+                val activity = instrumentation.waitForMonitorWithTimeout(monitor, 5000)
+                assertNotNull("Notification should open the app", activity)
+                assertEquals(index % OfficeExercises.moves.size, activity!!.intent.getIntExtra(OfficeExercises.EXTRA_MOVE, -1))
+                instrumentation.runOnMainSync { activity.finish() }
+                instrumentation.waitForIdleSync()
+            } finally { instrumentation.removeMonitor(monitor) }
+        }
+        val next = settings.getInt("exercise_next", -1)
+        ReminderNotifications.post(context, Scheduler.WATER)
+        assertEquals(next, settings.getInt("exercise_next", -1))
+    }
+
     @Test fun scheduledTestActuallyDeliversWhileIdle() {
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
         fun shell(command: String): String = android.os.ParcelFileDescriptor.AutoCloseInputStream(
