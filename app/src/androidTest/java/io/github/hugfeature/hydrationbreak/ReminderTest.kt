@@ -57,6 +57,11 @@ class ReminderTest {
         // CI sets the device clock to noon; invoke the real receiver, not a timed delivery.
         ReminderReceiver().onReceive(context, Intent().putExtra("kind", Scheduler.WATER))
         assertTrue(settings.getLong("next_1", 0) > System.currentTimeMillis())
-        assertTrue(context.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == Scheduler.WATER })
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val deadline = android.os.SystemClock.elapsedRealtime() + 5000
+        while (manager.activeNotifications.none { it.id == Scheduler.WATER } && android.os.SystemClock.elapsedRealtime() < deadline) {
+            android.os.SystemClock.sleep(50)
+        }
+        assertTrue("Notification not posted within 5 seconds", manager.activeNotifications.any { it.id == Scheduler.WATER })
     }
 }
