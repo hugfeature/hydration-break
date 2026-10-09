@@ -14,6 +14,7 @@ class MainActivity : Activity() {
     private val refresh = object : Runnable {
         override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
     }
+    private var lastExact: Boolean? = null
     private val kinds = listOf(Scheduler.WATER, Scheduler.BREAK)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,6 +27,9 @@ class MainActivity : Activity() {
     }
     override fun onResume() {
         super.onResume()
+        val exact = Scheduler.exactAllowed(this)
+        if (lastExact != null && lastExact != exact) Scheduler.rescheduleAll(this, preserveFuture = true)
+        lastExact = exact
         if (::notificationStatus.isInitialized) handler.post(refresh)
     }
     override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
@@ -37,6 +41,8 @@ class MainActivity : Activity() {
         val blocked = ReminderNotifications.blockedReason(this) != null
         var notificationText = if (blocked) "通知未开启，提醒不会显示。请点击下方按钮开启应用通知及健康提醒通知类别。"
             else "通知已开启；锁屏显示、声音和省电限制由系统设置决定。"
+        notificationText += if (Scheduler.exactAllowed(this)) "\n精确提醒已授权；仍需允许系统后台运行。"
+            else "\n精确提醒未授权：当前使用普通提醒，无法保证延迟少于一个周期。"
         val settings = Scheduler.prefs(this)
         val now = System.currentTimeMillis()
         fun time(value: Long) = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(value))
@@ -54,7 +60,12 @@ class MainActivity : Activity() {
                     else -> "$name：暂无待执行计划"
                 }
                 val received = settings.getLong("received_$kind", 0)
-                if (received > 0) lines += "上次触发 ${time(received)}"
+                if (received > 0) {
+                    lines += "上次触发 ${time(received)}"
+                    val due = settings.getLong("due_$kind", 0)
+                    if (due > 0) lines += "该次计划 ${time(due)}，延迟 ${((received - due).coerceAtLeast(0) / 1000)} 秒"
+                }
+                if (next > 0) lines += if (settings.getBoolean("exact_$kind", false)) "调度：精确提醒" else "调度：普通提醒（延迟上限无法保证）"
                 settings.getString("result_$kind", null)?.let { lines += it }
             }
         }
@@ -103,6 +114,19 @@ class MainActivity : Activity() {
                 } catch (_: android.content.ActivityNotFoundException) {
                     Toast.makeText(this@MainActivity, "请在系统设置中打开本应用的通知设置", Toast.LENGTH_LONG).show()
                 }
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "开启精确提醒"
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= 31 && !Scheduler.exactAllowed(this@MainActivity)) {
+                    try {
+                        startActivity(android.content.Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                            android.net.Uri.parse("package:$packageName")))
+                    } catch (_: android.content.ActivityNotFoundException) {
+                        Toast.makeText(this@MainActivity, "请在系统设置中允许本应用设置闹钟和提醒", Toast.LENGTH_LONG).show()
+                    }
+                } else Toast.makeText(this@MainActivity, "精确提醒已可用", Toast.LENGTH_SHORT).show()
             }
         })
         scheduleStatus = TextView(this).apply { textSize = 14f }

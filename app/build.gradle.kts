@@ -9,8 +9,8 @@ android {
         applicationId = "io.github.hugfeature.hydrationbreak"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.gradleProperty("upgradeVersionCode").orElse("5").get().toInt()
-        versionName = "0.1.4"
+        versionCode = providers.gradleProperty("upgradeVersionCode").orElse("6").get().toInt()
+        versionName = "0.1.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // CI distribution always uses the durable key; local debug builds remain available.

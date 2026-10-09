@@ -58,6 +58,7 @@ class ReminderReceiver : BroadcastReceiver() {
         if (!Scheduler.validKind(kind) && kind != Scheduler.TEST) return
         val settings = Scheduler.prefs(context)
         val received = System.currentTimeMillis()
+        val due = settings.getLong("next_$kind", 0)
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val result = when {
             kind == Scheduler.TEST -> ReminderNotifications.post(context, kind)
@@ -65,15 +66,15 @@ class ReminderReceiver : BroadcastReceiver() {
             hour < Scheduler.start(context) || hour >= Scheduler.end(context) -> "到达时已超出提醒时段，本次跳过"
             else -> ReminderNotifications.post(context, kind)
         }
-        settings.edit().putLong("received_$kind", received).putString("result_$kind", result).apply()
+        settings.edit().putLong("due_$kind", due).putLong("received_$kind", received).putString("result_$kind", result).apply()
         if (kind == Scheduler.TEST) settings.edit().remove("next_$kind").apply()
         else Scheduler.schedule(context, kind)
     }
 }
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action in listOf(Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED, Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED)) {
-            Scheduler.rescheduleAll(context)
+        if (intent.action in listOf(Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED, Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED, android.app.AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED)) {
+            Scheduler.rescheduleAll(context, preserveFuture = intent.action != Intent.ACTION_TIME_CHANGED && intent.action != Intent.ACTION_TIMEZONE_CHANGED)
         }
     }
 }

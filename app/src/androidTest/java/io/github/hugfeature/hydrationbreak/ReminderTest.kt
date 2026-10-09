@@ -41,6 +41,51 @@ class ReminderTest {
         assertTrue(water > 0)
         assertEquals(water, settings.getLong("next_1", 0))
     }
+    @Test fun reopeningDoesNotPostponeOverdueReminder() {
+        val overdue = System.currentTimeMillis() - 60_000
+        settings.edit().putInt("start", 0).putInt("end", 23).putLong("next_1", overdue).commit()
+        Scheduler.schedule(context, Scheduler.WATER, preserveFuture = true)
+        assertEquals(overdue, settings.getLong("next_1", 0))
+    }
+    @Test fun unchangedWindowDoesNotResetCountdown() {
+        Scheduler.rescheduleAll(context)
+        val before = settings.getLong("next_1", 0)
+        assertTrue(Scheduler.saveWindow(context, Scheduler.start(context), Scheduler.end(context)))
+        assertEquals(before, settings.getLong("next_1", 0))
+    }
+    @Test fun regularRemindersDeliverWhileLockedAfterSettingsChange() {
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
+        fun shell(command: String): String = android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand(command)).bufferedReader().use { it.readText() }
+        shell("appops set ${context.packageName} SCHEDULE_EXACT_ALARM allow")
+        assertTrue(Scheduler.exactAllowed(context))
+        settings.edit().putInt("minutes_1", 15).putInt("minutes_2", 15).commit()
+        assertTrue(Scheduler.saveWindow(context, 0, 23))
+        val due = settings.getLong("next_1", 0)
+        try {
+            shell("input keyevent KEYCODE_HOME")
+            shell("input keyevent KEYCODE_SLEEP")
+            shell("dumpsys battery unplug")
+            shell("cmd power set-mode 1")
+            shell("dumpsys deviceidle force-idle")
+            assertTrue(shell("dumpsys deviceidle").contains("mState=IDLE"))
+            val deadline = android.os.SystemClock.elapsedRealtime() + 29 * 60_000
+            while ((settings.getLong("received_1", 0) == 0L || settings.getLong("received_2", 0) == 0L) &&
+                android.os.SystemClock.elapsedRealtime() < deadline) android.os.SystemClock.sleep(1000)
+            for (kind in listOf(Scheduler.WATER, Scheduler.BREAK)) {
+                val received = settings.getLong("received_$kind", 0)
+                assertTrue("Regular reminder $kind missed its cycle", received >= due && received - due < 15 * 60_000)
+                assertTrue(context.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == kind })
+            }
+            assertTrue("Device left idle before evidence collection", shell("dumpsys deviceidle").contains("mState=IDLE"))
+        } finally {
+            shell("dumpsys deviceidle unforce")
+            shell("cmd power set-mode 0")
+            shell("dumpsys battery reset")
+            shell("input keyevent KEYCODE_WAKEUP")
+            shell("input keyevent 82")
+        }
+    }
     @Test fun bootHandlerHonorsDisabledReminder() {
         settings.edit().putBoolean("enabled_1", false).commit()
         BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))

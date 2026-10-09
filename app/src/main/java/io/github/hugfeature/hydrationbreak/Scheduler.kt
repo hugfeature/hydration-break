@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import android.os.Build
 import java.util.Calendar
 
 object Scheduler {
@@ -13,6 +14,22 @@ object Scheduler {
     const val TEST = 3
     private const val PREF = "reminder_settings"
     fun prefs(context: Context) = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+    fun exactAllowed(context: Context): Boolean =
+        Build.VERSION.SDK_INT < 31 || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+    private fun arm(context: Context, kind: Int, trigger: Long, operation: PendingIntent) {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        var exact = exactAllowed(context)
+        try {
+            if (exact) manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation)
+            else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation)
+        } catch (error: SecurityException) {
+            // Permission can be revoked between checking and scheduling.
+            exact = false
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation)
+        }
+        prefs(context).edit().putBoolean("exact_$kind", exact)
+            .putLong("scheduled_$kind", System.currentTimeMillis()).apply()
+    }
     fun validKind(kind: Int) = kind == WATER || kind == BREAK
     fun enabled(context: Context, kind: Int) = prefs(context).getBoolean("enabled_$kind", true)
     fun minutes(context: Context, kind: Int) = prefs(context).getInt("minutes_$kind", 60)
@@ -20,6 +37,7 @@ object Scheduler {
     fun end(context: Context) = prefs(context).getInt("end", 18)
     fun saveWindow(context: Context, from: Int, to: Int): Boolean {
         if (from !in 0..23 || to !in 0..23 || from >= to) return false
+        if (from == start(context) && to == end(context)) return true
         prefs(context).edit().putInt("start", from).putInt("end", to).apply()
         rescheduleAll(context)
         return true
@@ -50,7 +68,7 @@ object Scheduler {
         manager.cancel(operation)
         prefs(context).edit().remove("next_$TEST").remove("received_$TEST").remove("result_$TEST").apply()
         return try {
-            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation)
+            arm(context, TEST, trigger, operation)
             prefs(context).edit().putLong("next_$TEST", trigger).apply()
             true
         } catch (error: SecurityException) {
@@ -69,10 +87,11 @@ object Scheduler {
         if (!enabled(context, kind)) return
         val now = Calendar.getInstance()
         val calculated = nextTrigger(now, minutes(context, kind), start(context), end(context)) ?: return
-        val trigger = if (preserveFuture && saved > now.timeInMillis) saved else calculated
+        val inWindow = now.get(Calendar.HOUR_OF_DAY) in start(context) until end(context)
+        // Preserve overdue work too: Android will deliver one catch-up alarm, not a burst.
+        val trigger = if (preserveFuture && saved > 0 && (saved > now.timeInMillis || inWindow)) saved else calculated
         try {
-            // Inexact alarm, allowed during idle but still subject to system throttling.
-            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, operation)
+            arm(context, kind, trigger, operation)
             settings.edit().putLong("next_$kind", trigger).apply()
         } catch (error: SecurityException) {
             Log.e("Reminder", "Alarm scheduling denied", error)

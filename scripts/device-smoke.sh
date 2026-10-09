@@ -23,7 +23,7 @@ for key in ('enabled_1', 'minutes_2', 'start', 'end'):
 PYXML
 adb shell am start -W -n "$pkg/.MainActivity"
 adb shell dumpsys package "$pkg" > device-evidence/package-upgrade.txt
-grep -q 'versionCode=6' device-evidence/package-upgrade.txt
+grep -q 'versionCode=7' device-evidence/package-upgrade.txt
 # The rest of the smoke test uses the exact distributable build.
 adb uninstall "$pkg"
 adb install app/build/outputs/apk/debug/app-debug.apk
