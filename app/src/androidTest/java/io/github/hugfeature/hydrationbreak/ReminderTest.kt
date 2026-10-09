@@ -5,13 +5,24 @@ import android.content.Intent
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Before
+import org.junit.After
 import org.junit.Test
 
 class ReminderTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
     private val settings get() = Scheduler.prefs(context)
+    @After fun cancelScheduledWork() {
+        val manager = context.getSystemService(android.app.AlarmManager::class.java)
+        for (kind in listOf(Scheduler.WATER, Scheduler.BREAK, Scheduler.TEST)) {
+            val operation = android.app.PendingIntent.getBroadcast(context, kind,
+                Intent(context, ReminderReceiver::class.java).putExtra("kind", kind),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+            manager.cancel(operation)
+        }
+    }
     @Before fun reset() {
+        cancelScheduledWork()
         settings.edit().clear().commit()
         context.getSystemService(NotificationManager::class.java).cancelAll()
     }
@@ -44,8 +55,11 @@ class ReminderTest {
     @Test fun reopeningDoesNotPostponeOverdueReminder() {
         val overdue = System.currentTimeMillis() - 60_000
         settings.edit().putInt("start", 0).putInt("end", 23).putLong("next_1", overdue).commit()
-        Scheduler.schedule(context, Scheduler.WATER, preserveFuture = true)
-        assertEquals(overdue, settings.getLong("next_1", 0))
+        instrumentation.runOnMainSync {
+            Scheduler.schedule(context, Scheduler.WATER, preserveFuture = true)
+            assertEquals(overdue, settings.getLong("next_1", 0))
+            cancelScheduledWork()
+        }
     }
     @Test fun unchangedWindowDoesNotResetCountdown() {
         Scheduler.rescheduleAll(context)
