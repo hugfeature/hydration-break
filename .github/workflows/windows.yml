@@ -2,6 +2,7 @@ name: Build Windows desktop
 on:
   push:
     branches: [main]
+    paths: ["windows/**", "shared/**", ".github/workflows/windows.yml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,6 +53,19 @@ jobs:
           $g.CopyFromScreen(0,0,0,0,$bitmap.Size)
           $bitmap.Save("$pwd/windows-desktop.png")
           $g.Dispose(); $bitmap.Dispose()
+          # Closing the normal window must leave the independent reminder process alive.
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class WindowTest {
+            [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+          }
+          "@
+          if ($app.MainWindowHandle -eq 0) { throw "No main window after launch" }
+          [WindowTest]::PostMessage($app.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+          Start-Sleep -Seconds 2
+          $app.Refresh()
+          if ($app.HasExited) { throw "Closing window stopped reminders" }
           Stop-Process -Id $app.Id
           $p = Start-Process "$dir/unins000.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait -PassThru
           if ($p.ExitCode -ne 0 -or (Test-Path "$dir/RestAndMove.exe")) { throw "Uninstall failed" }
