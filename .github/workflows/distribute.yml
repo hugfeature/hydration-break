@@ -1,0 +1,72 @@
+name: Publish verified 0.2.0 candidate
+on:
+  workflow_run:
+    workflows: ["Build Android APK", "Build Windows desktop"]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: release-0.2.0
+  cancel-in-progress: false
+jobs:
+  distribute:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == 'a401e0ba567f9c944aa26a0c5c0841ba0e3966cc'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both platform validations for the same source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          gh api "repos/$GH_REPO/actions/runs?head_sha=$SOURCE_SHA&per_page=100" > runs.json
+          python3 - <<'PY'
+          import json, os
+          runs = json.load(open('runs.json'))['workflow_runs']
+          names = {'Build Android APK':'ANDROID_RUN', 'Build Windows desktop':'WINDOWS_RUN'}
+          found = {}
+          for name, key in names.items():
+              matches = [r for r in runs if r['name'] == name and r['head_sha'] == os.environ['SOURCE_SHA']]
+              if not matches or matches[0]['conclusion'] != 'success':
+                  print('Other platform not yet successful; no release.')
+                  break
+              found[key] = matches[0]['id']
+          else:
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write('READY=true\n')
+                  for key, value in found.items(): f.write(f'{key}={value}\n')
+          PY
+      - name: Download verified packages and publish candidate
+        if: env.READY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if gh release view v0.2.0 >/dev/null 2>&1; then
+            echo "Existing release preserved."
+            exit 0
+          fi
+          gh run download "$ANDROID_RUN" -n rest-and-move-0.2.0-android -D android
+          gh run download "$WINDOWS_RUN" -n rest-and-move-0.2.0-windows-x64 -D windows
+          (cd android && sha256sum -c SHA256SUMS)
+          # PowerShell writes uppercase/lowercase-independent hashes, CRLF normalized here.
+          sed -i 's/\r$//' windows/SHA256SUMS
+          (cd windows && sha256sum -c SHA256SUMS)
+          mkdir assets
+          cp android/*.apk windows/*.exe windows/*.zip assets/
+          cp android/ANDROID.md android/PRIVACY.md assets/
+          cp android/SHA256SUMS assets/ANDROID-SHA256SUMS
+          cp windows/SHA256SUMS assets/WINDOWS-SHA256SUMS
+          cat > notes.md <<'NOTES'
+          可下载分发的 0.2.0 候选版本：Android 固定签名 release APK + Windows x64 自包含安装包/便携包。
+          两端均离线运行，共用 7 个可选办公室小幅动作。
+          Android 隐藏诊断入口，保留精确提醒；验证 0.1.5→0.2.0 覆盖安装及设置保留。
+          Windows 验证调度/持久化、安装、重装保留设置、启动、关闭窗口留在托盘、卸载。
+          Android 定时锁屏测试在模拟器进行；Windows CI 为 Windows Server，不等同于目标电脑锁屏通知实测。
+          Windows 尚未购买发布者签名证书，可能提示未知发布者；不默认开机启动。
+          仍需目标设备连续周期和锁屏可见性验收。仓库保持私有，有权限者可下载后转发安装文件。
+          NOTES
+          gh release create v0.2.0 assets/* --target "$SOURCE_SHA" --title "休息与运动 0.2.0 · Android 与 Windows" --notes-file notes.md --prerelease
