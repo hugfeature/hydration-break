@@ -62,7 +62,7 @@ jobs:
           }
           "@
           if ($app.MainWindowHandle -eq 0) { throw "No main window after launch" }
-          [WindowTest]::PostMessage($app.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+          [WindowTest]::PostMessage($app.MainWindowHandle, 0x0112, [IntPtr]0xF060, [IntPtr]::Zero) | Out-Null
           Start-Sleep -Seconds 2
           $app.Refresh()
           if ($app.HasExited) { throw "Closing window stopped reminders" }
