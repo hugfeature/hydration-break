@@ -12,23 +12,27 @@ concurrency:
   cancel-in-progress: false
 jobs:
   distribute:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == 'a401e0ba567f9c944aa26a0c5c0841ba0e3966cc'
+    if: github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_sha == 'a401e0ba567f9c944aa26a0c5c0841ba0e3966cc' || github.event.workflow_run.head_sha == 'bdcc1371474466ad0baeac65cfcd6db906dff66b')
     runs-on: ubuntu-latest
     steps:
-      - name: Require both platform validations for the same source commit
+      - name: Require both validations and identical Android source
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_SHA: bdcc1371474466ad0baeac65cfcd6db906dff66b
         run: |
-          gh api "repos/$GH_REPO/actions/runs?head_sha=$SOURCE_SHA&per_page=100" > runs.json
+          gh api "repos/$GH_REPO/actions/runs?per_page=100" > runs.json
+          gh api "repos/$GH_REPO/compare/a401e0ba567f9c944aa26a0c5c0841ba0e3966cc...$SOURCE_SHA" > changes.json
           python3 - <<'PY'
           import json, os
           runs = json.load(open('runs.json'))['workflow_runs']
-          names = {'Build Android APK':'ANDROID_RUN', 'Build Windows desktop':'WINDOWS_RUN'}
+          # Android sources are identical; only the Windows test command and release gate changed.
+          allowed = {'.github/workflows/windows.yml', '.github/workflows/distribute.yml'}
+          assert all(f['filename'] in allowed for f in json.load(open('changes.json'))['files'])
+          names = {'Build Android APK':('ANDROID_RUN','a401e0ba567f9c944aa26a0c5c0841ba0e3966cc'), 'Build Windows desktop':('WINDOWS_RUN',os.environ['SOURCE_SHA'])}
           found = {}
-          for name, key in names.items():
-              matches = [r for r in runs if r['name'] == name and r['head_sha'] == os.environ['SOURCE_SHA']]
+          for name, (key, sha) in names.items():
+              matches = [r for r in runs if r['name'] == name and r['head_sha'] == sha]
               if not matches or matches[0]['conclusion'] != 'success':
                   print('Other platform not yet successful; no release.')
                   break
@@ -43,7 +47,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_SHA: bdcc1371474466ad0baeac65cfcd6db906dff66b
         run: |
           if gh release view v0.2.0 >/dev/null 2>&1; then
             echo "Existing release preserved."
