@@ -9,8 +9,8 @@ android {
         applicationId = "io.github.hugfeature.hydrationbreak"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.gradleProperty("upgradeVersionCode").orElse("6").get().toInt()
-        versionName = "0.1.5"
+        versionCode = providers.gradleProperty("upgradeVersionCode").orElse("7").get().toInt()
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // CI distribution always uses the durable key; local debug builds remain available.
@@ -26,6 +26,13 @@ android {
             } else if (System.getenv("GITHUB_ACTIONS") == "true") {
                 error("CI signing key is required; refusing an ephemeral debug signature")
             }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isDebuggable = false
         }
     }
     compileOptions {

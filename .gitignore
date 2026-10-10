@@ -9,3 +9,9 @@ device-evidence/
 android-signing.json
 upgrade-fixture/
 __pycache__/
+
+baseline-0.1.5/
+publish/
+dist/
+**/bin/
+**/obj/

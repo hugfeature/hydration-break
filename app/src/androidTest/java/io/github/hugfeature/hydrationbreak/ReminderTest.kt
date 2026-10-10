@@ -123,6 +123,14 @@ class ReminderTest {
         }
         assertTrue("Notification not posted within 5 seconds", manager.activeNotifications.any { it.id == Scheduler.WATER })
     }
+    @Test fun exerciseSelectionIsRespected() {
+        settings.edit().putStringSet("exercise_ids", setOf("wrist")).commit()
+        assertEquals("wrist", OfficeExercises.at(OfficeExercises.nextSelected(context, 0)!!).id)
+        settings.edit().putStringSet("exercise_ids", emptySet()).commit()
+        assertNull(OfficeExercises.nextSelected(context, 0))
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
+        assertTrue(ReminderNotifications.post(context, Scheduler.BREAK).startsWith("已交给"))
+    }
     @Test fun exerciseNotificationRotatesAndOpensMatchingInstructions() {
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
         val manager = context.getSystemService(NotificationManager::class.java)

@@ -11,6 +11,10 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: a0b6b4086c9cd9faa29537efb1be84ab9bd7f29e
+          path: baseline-0.1.5
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -18,34 +22,33 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Check shared exercise catalog
+        run: |
+          python3 scripts/generate-exercises.py
+          git diff --exit-code -- app/src/main/java/io/github/hugfeature/hydrationbreak/OfficeExercises.kt
       - name: Restore fixed signing key
         env:
           ANDROID_SIGNING_JSON: ${{ secrets.ANDROID_SIGNING_JSON }}
         run: python3 scripts/restore-signing.py
-      - name: Build base APK
-        run: gradle --no-daemon assembleDebug
-      - name: Verify APK signature and metadata
+      - name: Build baseline and release candidate
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk
-          mkdir -p app/build/distribution
-          cp app/build/outputs/apk/debug/app-debug.apk app/build/distribution/hydration-break-0.1.5.apk
-          cd app/build/distribution
-          sha256sum hydration-break-0.1.5.apk > SHA256SUMS
-      - name: Build independent upgrade fixture with the same key
+          gradle -p baseline-0.1.5 --no-daemon assembleDebug
+          gradle --no-daemon assembleRelease assembleDebug testDebugUnitTest lintDebug assembleDebugAndroidTest
+          mkdir -p upgrade-fixture app/build/distribution
+          cp baseline-0.1.5/app/build/outputs/apk/debug/app-debug.apk upgrade-fixture/base.apk
+          cp app/build/outputs/apk/release/app-release.apk upgrade-fixture/upgrade.apk
+          cp app/build/outputs/apk/release/app-release.apk app/build/distribution/rest-and-move-0.2.0.apk
+      - name: Verify release signature and metadata
         run: |
-          mkdir -p upgrade-fixture
-          cp app/build/outputs/apk/debug/app-debug.apk upgrade-fixture/base.apk
-          gradle --no-daemon clean assembleDebug -PupgradeVersionCode=7
-          cp app/build/outputs/apk/debug/app-debug.apk upgrade-fixture/upgrade.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs upgrade-fixture/base.apk > upgrade-fixture/base-cert.txt
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs upgrade-fixture/upgrade.apk > upgrade-fixture/upgrade-cert.txt
           diff upgrade-fixture/base-cert.txt upgrade-fixture/upgrade-cert.txt
-          gradle --no-daemon clean assembleDebug testDebugUnitTest lintDebug assembleDebugAndroidTest
-          mkdir -p app/build/distribution
-          cp app/build/outputs/apk/debug/app-debug.apk app/build/distribution/hydration-break-0.1.5.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging upgrade-fixture/upgrade.apk > upgrade-fixture/metadata.txt
+          ! grep -q application-debuggable upgrade-fixture/metadata.txt
+          cat upgrade-fixture/metadata.txt
+          cp docs/PRIVACY.md docs/ANDROID.md app/build/distribution/
           cd app/build/distribution
-          sha256sum hydration-break-0.1.5.apk > SHA256SUMS
+          sha256sum rest-and-move-0.2.0.apk > SHA256SUMS
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -66,7 +69,7 @@ jobs:
             bash scripts/validate-device.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: hydration-break-0.1.5-debug-apk
+          name: rest-and-move-0.2.0-android
           path: app/build/distribution/*
           if-no-files-found: error
       - name: Remove restored signing key
@@ -75,8 +78,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: validation-reports
+          name: android-validation
           path: |
             app/build/reports/
             app/build/outputs/androidTest-results/
             device-evidence/
+            upgrade-fixture/*cert.txt
+            upgrade-fixture/metadata.txt

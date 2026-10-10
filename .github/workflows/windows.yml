@@ -1,0 +1,78 @@
+name: Build Windows desktop
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish self-contained application
+        run: dotnet publish windows/RestAndMove.csproj -c Release -r win-x64 --self-contained true -o publish -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+      - name: Scheduling and storage regression
+        shell: pwsh
+        run: |
+          $p = Start-Process ./publish/RestAndMove.exe -ArgumentList "--self-test self-test.txt" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content self-test.txt; throw "Regression failed" }
+          Get-Content self-test.txt
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+      - name: Install upgrade launch and uninstall
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path dist/*setup.exe).Path
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Install failed" }
+          $dir = "$env:LOCALAPPDATA/Programs/RestAndMove"
+          $data = "$env:LOCALAPPDATA/RestAndMove"
+          New-Item -ItemType Directory -Force $data | Out-Null
+          '{"Water":false,"Exercise":true,"WaterMinutes":90,"ExerciseMinutes":45,"Start":8,"End":20}' | Set-Content "$data/settings.json"
+          $before = Get-Content "$data/settings.json" -Raw
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=upgrade.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Upgrade install failed" }
+          if ((Get-Content "$data/settings.json" -Raw) -ne $before) { throw "Upgrade lost settings" }
+          $app = Start-Process "$dir/RestAndMove.exe" -PassThru
+          Start-Sleep -Seconds 4
+          $app.Refresh()
+          if ($app.HasExited) { throw "App exited on launch" }
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          $bitmap = New-Object Drawing.Bitmap ([Windows.Forms.Screen]::PrimaryScreen.Bounds.Width), ([Windows.Forms.Screen]::PrimaryScreen.Bounds.Height)
+          $g = [Drawing.Graphics]::FromImage($bitmap)
+          $g.CopyFromScreen(0,0,0,0,$bitmap.Size)
+          $bitmap.Save("$pwd/windows-desktop.png")
+          $g.Dispose(); $bitmap.Dispose()
+          Stop-Process -Id $app.Id
+          $p = Start-Process "$dir/unins000.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or (Test-Path "$dir/RestAndMove.exe")) { throw "Uninstall failed" }
+          if (-not (Test-Path "$data/settings.json")) { throw "Uninstall removed retained settings" }
+      - name: Package and checksum
+        shell: pwsh
+        run: |
+          Copy-Item docs/PRIVACY.md publish/
+          Copy-Item docs/WINDOWS.md publish/README.md
+          Compress-Archive -Path publish/* -DestinationPath dist/RestAndMove-0.2.0-windows-x64-portable.zip
+          Get-ChildItem dist/* | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rest-and-move-0.2.0-windows-x64
+          path: dist/*
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-validation
+          path: |
+            self-test.txt
+            *install.log
+            upgrade.log
+            windows-desktop.png

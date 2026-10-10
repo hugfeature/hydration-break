@@ -1,0 +1,9 @@
+[
+ {"id":"knee","title":"坐姿小幅抬膝","steps":"坐直，扶住稳固椅子两侧。缓慢抬起一只脚少许，再放下；左右交替，各做 5 次。","source":"https://www.nhs.uk/live-well/exercise/sitting-exercises/"},
+ {"id":"turn","title":"坐姿轻转肩背","steps":"双脚平放，双臂交叉放在胸前。髋部不动，上身轻轻左右转动，各停约 5 秒，各做 3 次。","source":"https://www.nhs.uk/live-well/exercise/sitting-exercises/"},
+ {"id":"neck","title":"缓慢转头","steps":"坐直、放松肩膀。缓慢向左右转头至舒适位置，各停约 5 秒，各做 3 次；不绕颈、不用力扳头。","source":"https://www.nhs.uk/live-well/exercise/sitting-exercises/"},
+ {"id":"ankle","title":"脚踝轻轻勾伸","steps":"坐稳，单脚稍稍离地，缓慢勾脚尖、再轻轻向前伸；左右各做 5 次，不追求幅度。","source":"https://www.nhs.uk/live-well/exercise/sitting-exercises/"},
+ {"id":"hand","title":"手指张合","steps":"前臂舒适地放在桌面上，缓慢张开手指，再轻轻合拢成松拳；做 5 次，不用力攥紧。","source":"https://www.mtw.nhs.uk/hand-and-wrist/"},
+ {"id":"wrist","title":"手腕轻轻屈伸","steps":"前臂得到支撑、手指放松，手腕小幅向上和向下移动；左右各做 5 次，不用另一只手强拉。","source":"https://www.ruh.nhs.uk/patients/patient_information/HTH024_Wrist_Exercises.pdf"},
+ {"id":"shoulder","title":"轻耸肩再放松","steps":"坐直，双臂自然垂放。双肩轻轻抬起，再缓慢放下，做 5 次；保持呼吸自然。","source":"https://best.barnsleyccg.nhs.uk/media/baklmdj5/shoulder-pain-exercises-nov-23.pdf"}
+]

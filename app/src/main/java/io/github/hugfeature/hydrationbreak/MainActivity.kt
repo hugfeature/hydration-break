@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.*
 
 class MainActivity : Activity() {
+    private var diagnosticStatus: TextView? = null
     private lateinit var notificationStatus: TextView
     private lateinit var scheduleStatus: TextView
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -69,18 +70,81 @@ class MainActivity : Activity() {
                 settings.getString("result_$kind", null)?.let { lines += it }
             }
         }
-        val scheduleText = lines.joinToString("\n")
+        diagnosticStatus?.text = lines.joinToString("\n")
+        val scheduleText = kinds.joinToString("\n") { kind ->
+            val name = if (kind == Scheduler.WATER) "喝水" else "运动"
+            val next = settings.getLong("next_$kind", 0)
+            when {
+                !Scheduler.enabled(this, kind) -> "$name · 已关闭"
+                next <= 0 -> "$name · 尚未安排"
+                next <= now -> "$name · 等待系统触发"
+                else -> "$name · 下次 ${time(next)}"
+            }
+        }
         if (scheduleStatus.text.toString() != scheduleText) scheduleStatus.text = scheduleText
         kinds.mapNotNull { Scheduler.prefs(this).getString("error_$it", null) }.distinct().forEach {
             notificationText += "\n$it"
         }
         if (notificationStatus.text.toString() != notificationText) notificationStatus.text = notificationText
     }
+    private fun settingsMenu() {
+        android.app.AlertDialog.Builder(this).setTitle("设置")
+            .setItems(arrayOf("提醒诊断", "隐私说明", "关于与使用说明")) { _, which ->
+                when (which) {
+                    0 -> showDiagnostics()
+                    1 -> android.app.AlertDialog.Builder(this).setTitle("隐私说明")
+                        .setMessage("完全离线，无账号、广告、分析或上传。设置、动作选择和最近触发记录仅保存在本机；卸载后删除。系统通知可能在锁屏展示内容，可在系统设置中关闭。应用仅使用通知、开机恢复和精确闹钟权限。")
+                        .setPositiveButton("知道了", null).show()
+                    else -> android.app.AlertDialog.Builder(this).setTitle("休息与运动")
+                        .setMessage("版本 " + packageManager.getPackageInfo(packageName, 0).versionName +
+                            "\n\n提醒开关与间隔立即生效；每日时段需要保存。请允许通知和精确提醒。\n\n动作适合短暂活动，不代替规律运动或医疗建议。内容参考 NHS，查看动作可见来源。\n\n反馈：github.com/hugfeature/hydration-break/issues")
+                        .setPositiveButton("知道了", null).show()
+                }
+            }.setNegativeButton("关闭", null).show()
+    }
+    private fun showDiagnostics() {
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 16) }
+        diagnosticStatus = TextView(this).also { panel.addView(it) }
+        panel.addView(Button(this).apply {
+            text = "立即发送测试通知"
+            setOnClickListener {
+                Toast.makeText(this@MainActivity, ReminderNotifications.post(this@MainActivity, Scheduler.TEST), Toast.LENGTH_LONG).show()
+                refreshStatus()
+            }
+        })
+        panel.addView(Button(this).apply {
+            text = "安排锁屏测试（约 1 分钟）"
+            setOnClickListener {
+                val blocked = ReminderNotifications.blockedReason(this@MainActivity)
+                if (blocked != null) Toast.makeText(this@MainActivity, blocked, Toast.LENGTH_LONG).show()
+                else {
+                    val scheduled = Scheduler.scheduleTest(this@MainActivity)
+                    refreshStatus()
+                    Toast.makeText(this@MainActivity, if (scheduled) "请现在锁屏。测试不受提醒时段限制，系统可能延迟；解锁后可查看触发记录。" else "测试安排失败，请查看状态", Toast.LENGTH_LONG).show()
+                }
+            }
+        })
+
+        android.app.AlertDialog.Builder(this).setTitle("提醒诊断")
+            .setView(ScrollView(this).apply { addView(panel) }).setPositiveButton("关闭", null)
+            .setOnDismissListener { diagnosticStatus = null }.show()
+        refreshStatus()
+    }
+    private fun chooseExercises() {
+        val selected = OfficeExercises.selected(this).toSet()
+        val checks = BooleanArray(OfficeExercises.moves.size) { it in selected }
+        android.app.AlertDialog.Builder(this).setTitle("选择通知中的动作")
+            .setMultiChoiceItems(OfficeExercises.moves.map { it.title }.toTypedArray(), checks) { _, which, checked -> checks[which] = checked }
+            .setPositiveButton("保存") { _, _ ->
+                Scheduler.prefs(this).edit().putStringSet("exercise_ids", OfficeExercises.moves.indices.filter { checks[it] }.map { OfficeExercises.moves[it].id }.toSet()).apply()
+                Toast.makeText(this, "已保存；未选择动作时仅发送一般活动提醒", Toast.LENGTH_SHORT).show()
+            }.setNegativeButton("取消", null).show()
+    }
     private fun showExercise(index: Int) {
         val move = OfficeExercises.at(index)
         android.app.AlertDialog.Builder(this)
             .setTitle(move.title)
-            .setMessage("${move.steps}\n\n${OfficeExercises.CAUTION}")
+            .setMessage("${move.steps}\n\n${OfficeExercises.CAUTION}\n\n参考来源：${move.source}")
             .setPositiveButton("知道了", null)
             .setNeutralButton("换一个动作") { _, _ -> showExercise(index + 1) }
             .show()
@@ -92,7 +156,11 @@ class MainActivity : Activity() {
         }
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
-        root.addView(TextView(this).apply { text = "休息与运动"; textSize = 27f })
+        root.setBackgroundColor(android.graphics.Color.rgb(245, 248, 247))
+        val density = resources.displayMetrics.density
+        root.setPadding((22 * density).toInt(), (24 * density).toInt(), (22 * density).toInt(), (24 * density).toInt())
+        root.addView(TextView(this).apply { text = "休息与运动"; textSize = 28f; setTextColor(android.graphics.Color.rgb(26, 77, 69)) })
+        root.addView(TextView(this).apply { text = "给忙碌留一点空隙"; textSize = 15f; setPadding(0, 8, 0, 20) })
         root.addView(TextView(this).apply { text = "离线运行 · 本地提醒 · v${packageManager.getPackageInfo(packageName, 0).versionName}"; textSize = 14f })
         root.addView(Button(this).apply {
             text = "办公室小幅运动 · 查看动作"
@@ -103,6 +171,7 @@ class MainActivity : Activity() {
                     .setNegativeButton("关闭", null).show()
             }
         })
+        root.addView(Button(this).apply { text = "选择提醒动作"; setOnClickListener { chooseExercises() } })
         notificationStatus = TextView(this)
         root.addView(notificationStatus)
         root.addView(Button(this).apply {
@@ -131,25 +200,6 @@ class MainActivity : Activity() {
         })
         scheduleStatus = TextView(this).apply { textSize = 14f }
         root.addView(scheduleStatus)
-        root.addView(Button(this).apply {
-            text = "立即发送测试通知"
-            setOnClickListener {
-                Toast.makeText(this@MainActivity, ReminderNotifications.post(this@MainActivity, Scheduler.TEST), Toast.LENGTH_LONG).show()
-                refreshStatus()
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "安排锁屏测试（约 1 分钟）"
-            setOnClickListener {
-                val blocked = ReminderNotifications.blockedReason(this@MainActivity)
-                if (blocked != null) Toast.makeText(this@MainActivity, blocked, Toast.LENGTH_LONG).show()
-                else {
-                    val scheduled = Scheduler.scheduleTest(this@MainActivity)
-                    refreshStatus()
-                    Toast.makeText(this@MainActivity, if (scheduled) "请现在锁屏。测试不受提醒时段限制，系统可能延迟；解锁后可查看触发记录。" else "测试安排失败，请查看状态", Toast.LENGTH_LONG).show()
-                }
-            }
-        })
         kinds.forEach { kind ->
             val name = if (kind == Scheduler.WATER) "喝水提醒" else "运动提醒"
             root.addView(Switch(this).apply {
@@ -215,5 +265,6 @@ class MainActivity : Activity() {
                 }
             }
         }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(Button(this).apply { text = "设置与帮助"; setOnClickListener { settingsMenu() } })
     }
 }

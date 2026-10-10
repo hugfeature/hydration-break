@@ -11,9 +11,9 @@ adb install upgrade-fixture/base.apk
 adb shell am start -W -n "$pkg/.MainActivity"
 adb shell am force-stop "$pkg"
 printf '%s' '<map><boolean name="enabled_1" value="false" /><int name="minutes_2" value="45" /><int name="start" value="8" /><int name="end" value="20" /></map>' | adb shell "run-as $pkg sh -c 'cat > shared_prefs/reminder_settings.xml'"
-adb shell run-as "$pkg" cat shared_prefs/reminder_settings.xml > device-evidence/settings-before-upgrade.xml
+adb shell cat "/data/user/0/$pkg/shared_prefs/reminder_settings.xml" > device-evidence/settings-before-upgrade.xml
 adb install -r upgrade-fixture/upgrade.apk
-adb shell run-as "$pkg" cat shared_prefs/reminder_settings.xml > device-evidence/settings-after-upgrade.xml
+adb shell cat "/data/user/0/$pkg/shared_prefs/reminder_settings.xml" > device-evidence/settings-after-upgrade.xml
 python3 - <<'PYXML'
 import xml.etree.ElementTree as ET
 before = {e.attrib['name']: e.attrib.get('value', e.text) for e in ET.parse('device-evidence/settings-before-upgrade.xml').getroot()}
@@ -26,7 +26,7 @@ adb shell dumpsys package "$pkg" > device-evidence/package-upgrade.txt
 grep -q 'versionCode=7' device-evidence/package-upgrade.txt
 # The rest of the smoke test uses the exact distributable build.
 adb uninstall "$pkg"
-adb install app/build/outputs/apk/debug/app-debug.apk
+adb install app/build/outputs/apk/release/app-release.apk
 adb shell pm grant "$pkg" android.permission.POST_NOTIFICATIONS
 adb shell am start -W -n "$pkg/.MainActivity" | tee device-evidence/launch.txt
 adb shell input keyevent KEYCODE_HOME
@@ -64,6 +64,8 @@ adb shell input keyevent KEYCODE_HOME
 adb shell input keyevent KEYCODE_SLEEP
 adb reboot
 adb wait-for-device
+adb root
+adb wait-for-device
 for attempt in $(seq 1 90); do
   if [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
   sleep 2
@@ -79,7 +81,7 @@ adb shell dumpsys package "$pkg" > device-evidence/package-reboot.txt
 adb shell dumpsys user > device-evidence/users-reboot.txt
 adb shell dumpsys activity broadcasts > device-evidence/broadcasts-reboot.txt
 adb shell logcat -d > device-evidence/logcat-reboot.txt
-adb shell run-as "$pkg" cat shared_prefs/reminder_settings.xml > device-evidence/settings-reboot.xml
+adb shell cat "/data/user/0/$pkg/shared_prefs/reminder_settings.xml" > device-evidence/settings-reboot.xml
 if ! grep -q "$pkg" device-evidence/alarms-reboot.txt; then
   cat device-evidence/package-reboot.txt
   cat device-evidence/users-reboot.txt
@@ -89,3 +91,11 @@ if ! grep -q "$pkg" device-evidence/alarms-reboot.txt; then
 fi
 adb shell logcat -d -b crash > device-evidence/crashes.txt
 if grep -q "$pkg" device-evidence/crashes.txt; then exit 1; fi
+
+# Capture the actual release home, with diagnostics hidden.
+adb shell am start -W -n "$pkg/.MainActivity"
+adb shell uiautomator dump /sdcard/window.xml
+adb pull /sdcard/window.xml device-evidence/release-home.xml
+if grep -q '立即发送测试通知' device-evidence/release-home.xml; then exit 1; fi
+adb shell screencap -p /sdcard/release-home.png
+adb pull /sdcard/release-home.png device-evidence/release-home.png
