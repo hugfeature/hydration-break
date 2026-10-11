@@ -1,5 +1,9 @@
 name: Publish verified 0.2.0 candidate
 on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/distribute.yml"]
+  workflow_dispatch:
   workflow_run:
     workflows: ["Build Android APK", "Build Windows desktop"]
     types: [completed]
@@ -12,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   distribute:
-    if: github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_sha == 'a401e0ba567f9c944aa26a0c5c0841ba0e3966cc' || github.event.workflow_run.head_sha == 'bdcc1371474466ad0baeac65cfcd6db906dff66b')
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_sha == 'a401e0ba567f9c944aa26a0c5c0841ba0e3966cc' || github.event.workflow_run.head_sha == 'bdcc1371474466ad0baeac65cfcd6db906dff66b')
     runs-on: ubuntu-latest
     steps:
       - name: Require both validations and identical Android source
@@ -23,12 +27,17 @@ jobs:
         run: |
           gh api "repos/$GH_REPO/actions/runs?per_page=100" > runs.json
           gh api "repos/$GH_REPO/compare/a401e0ba567f9c944aa26a0c5c0841ba0e3966cc...$SOURCE_SHA" > changes.json
+          gh api "repos/$GH_REPO/compare/$SOURCE_SHA...$GITHUB_SHA" > release-changes.json
           python3 - <<'PY'
           import json, os
           runs = json.load(open('runs.json'))['workflow_runs']
           # Android sources are identical; only the Windows test command and release gate changed.
           allowed = {'.github/workflows/windows.yml', '.github/workflows/distribute.yml'}
           assert all(f['filename'] in allowed for f in json.load(open('changes.json'))['files'])
+          release_changes = json.load(open('release-changes.json'))
+          assert release_changes['status'] in ('ahead', 'identical')
+          assert len(release_changes['files']) < 300, 'Comparison may be truncated'
+          assert all(f['filename'] == '.github/workflows/distribute.yml' or f['filename'].startswith('docs/') for f in release_changes['files']), 'Release source differs from tested apps'
           names = {'Build Android APK':('ANDROID_RUN','a401e0ba567f9c944aa26a0c5c0841ba0e3966cc'), 'Build Windows desktop':('WINDOWS_RUN',os.environ['SOURCE_SHA'])}
           found = {}
           for name, (key, sha) in names.items():
@@ -73,4 +82,6 @@ jobs:
           Windows 尚未购买发布者签名证书，可能提示未知发布者；不默认开机启动。
           仍需目标设备连续周期和锁屏可见性验收。仓库保持私有，有权限者可下载后转发安装文件。
           NOTES
-          gh release create v0.2.0 assets/* --target "$SOURCE_SHA" --title "休息与运动 0.2.0 · Android 与 Windows" --notes-file notes.md --prerelease
+          # Tag the current main commit: historical workflow differences require extra permissions.
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          gh release create v0.2.0 assets/* --target "$GITHUB_SHA" --title "休息与运动 0.2.0 · Android 与 Windows" --notes-file notes.md --prerelease
