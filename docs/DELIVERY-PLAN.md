@@ -18,5 +18,7 @@ Windows CI 无法替代个人电脑锁屏通知可见性、勿扰模式、长期
 - Android 验证运行：38025261394，成功；固定签名 release、0.1.5 覆盖升级保留设置、Android 15 模拟器测试。
 - Windows 验证运行：38025479031，成功；调度、持久化、安装、同版本重装保留设置、关闭窗口留在托盘和卸载。
 - APK、Windows 安装包/便携包已下载并校验 SHA256。可由有仓库权限的人下载后转发文件。
-- GitHub Release 尚未发布：运行 38026493772 在创建 Release 时返回 HTTP 403 Resource not accessible by integration；具体权限限制待确认。不扩大凭据权限，不把该步骤标为完成。
+- GitHub Release 已发布：https://github.com/hugfeature/hydration-break/releases/tag/v0.2.0 。修复运行 38145705089 成功，三份安装文件的 GitHub SHA256 与已交付本地文件一致。
+- 原发布失败原因：目标旧提交的工作流与默认分支不同，自动创建标签触发额外 Workflows 权限要求；现改为当前主分支提交并校验应用源码与已验证版本一致。权限保持 contents: write / actions: read，无新增凭据。
 - 目标设备验收见 ACCEPTANCE.md；Windows 尚无发布者签名，真实 Windows 11 锁屏和 Android 跨天提醒待验证。
+
